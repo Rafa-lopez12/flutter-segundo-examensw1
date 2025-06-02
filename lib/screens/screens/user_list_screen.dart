@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:fluttersw1/main.dart';
 import 'package:fluttersw1/models/user.dart';
 import 'package:fluttersw1/widgets/user_list_item.dart';
+
 
 
 class UserListScreen extends StatelessWidget {
@@ -13,6 +15,8 @@ class UserListScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: const AppDrawer(), // Navegación automática
+      
       appBar: AppBar(
         title: Text('Listar Usuarios'),
       ),

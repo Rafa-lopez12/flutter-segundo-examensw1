@@ -1,13 +1,16 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
-import 'routes/app_routes.dart';
-import 'utils/navigation_utils.dart';
+import 'package:fluttersw1/screens/screens/registro_screen.dart';
+import 'package:fluttersw1/screens/screens/user_list_screen.dart';
+import 'package:fluttersw1/widgets/pantalla_principal.dart';
+// Importar todas las pantallas
 
 void main() {
-  runApp(Proyecto2App());
+  runApp(const Proyecto2App());
 }
 
 class Proyecto2App extends StatelessWidget {
-  const Proyecto2App({Key? key}) : super(key: key);
+  const Proyecto2App({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,45 +20,78 @@ class Proyecto2App extends StatelessWidget {
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      navigatorKey: NavigationUtils.navigatorKey,
-      initialRoute: AppRoutes.initialRoute,
-      routes: AppRoutes.routes,
-      debugShowCheckedModeBanner: false,
-      onGenerateRoute: (settings) {
-        final routeBuilder = AppRoutes.routes[settings.name];
-        if (routeBuilder != null) {
-          return MaterialPageRoute(builder: routeBuilder, settings: settings);
-        }
-        
-        return MaterialPageRoute(
-          builder: (context) => const NotFoundScreen(),
-        );
+      initialRoute: '/principal',
+      routes: {
+        // Definir todas las rutas directamente aquí
+        '/principal': (context) => PantallaPrincipal(),
+        '/registro_de_usuario': (context) => RegistroScreen(),
+        '/listar__usuarios': (context) => UserListScreen(),
       },
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class NotFoundScreen extends StatelessWidget {
-  const NotFoundScreen({Key? key}) : super(key: key);
+// Navegación simple - TODO EN UNA CLASE
+class AppNavigation {
+  // Rutas disponibles
+  static const String principal = '/principal';
+  static const String registro_de_usuario = '/registro_de_usuario';
+  static const String listar__usuarios = '/listar__usuarios';
+
+  // Métodos simples para navegar
+  static void goTo(BuildContext context, String route) {
+    Navigator.pushNamed(context, route);
+  }
+
+  static void goBack(BuildContext context) {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
+  }
+
+  // Lista para el drawer
+  static List<NavigationItem> get allRoutes => [
+    NavigationItem('Principal', principal, Icons.home),
+    NavigationItem('Registro de usuario', registro_de_usuario, Icons.person),
+    NavigationItem('Listar Usuarios', listar__usuarios, Icons.list),
+  ];
+}
+
+// Item simple de navegación
+class NavigationItem {
+  final String title;
+  final String route;
+  final IconData icon;
+  const NavigationItem(this.title, this.route, this.icon);
+}
+
+// Drawer automático
+class AppDrawer extends StatelessWidget {
+  const AppDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Página no encontrada')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text('Página no encontrada', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: () => context.navigateAndClearStack(AppRoutes.initialRoute),
-              child: const Text('Volver al inicio'),
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(color: Colors.blue),
+            child: Text(
+              'Navegación',
+              style: TextStyle(color: Colors.white, fontSize: 24),
             ),
-          ],
-        ),
+          ),
+          ...AppNavigation.allRoutes.map((item) => ListTile(
+            leading: Icon(item.icon),
+            title: Text(item.title),
+            onTap: () {
+              Navigator.pop(context);
+              AppNavigation.goTo(context, item.route);
+            },
+          )),
+        ],
       ),
     );
   }
