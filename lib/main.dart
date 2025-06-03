@@ -1,97 +1,96 @@
-// lib/main.dart
 import 'package:flutter/material.dart';
-import 'package:fluttersw1/screens/screens/registro_screen.dart';
-import 'package:fluttersw1/screens/screens/user_list_screen.dart';
-import 'package:fluttersw1/widgets/pantalla_principal.dart';
-// Importar todas las pantallas
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
-void main() {
-  runApp(const Proyecto2App());
+import 'core/constants/app_colors.dart';
+import 'core/theme/app_theme.dart';
+import 'presentation/providers/auth_provider.dart';
+
+import 'presentation/pages/auth/login_page.dart';
+import 'presentation/pages/auth/register_page.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Configurar la barra de estado
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.white,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+
+  // Configurar orientaciones permitidas
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  runApp(const TiendaVirtualApp());
 }
 
-class Proyecto2App extends StatelessWidget {
-  const Proyecto2App({super.key});
+class TiendaVirtualApp extends StatelessWidget {
+  const TiendaVirtualApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'proyecto2',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
-      initialRoute: '/principal',
-      routes: {
-        // Definir todas las rutas directamente aquí
-        '/principal': (context) => PantallaPrincipal(),
-        '/registro_de_usuario': (context) => RegistroScreen(),
-        '/listar__usuarios': (context) => UserListScreen(),
-      },
-      debugShowCheckedModeBanner: false,
-    );
-  }
-}
-
-// Navegación simple - TODO EN UNA CLASE
-class AppNavigation {
-  // Rutas disponibles
-  static const String principal = '/principal';
-  static const String registro_de_usuario = '/registro_de_usuario';
-  static const String listar__usuarios = '/listar__usuarios';
-
-  // Métodos simples para navegar
-  static void goTo(BuildContext context, String route) {
-    Navigator.pushNamed(context, route);
-  }
-
-  static void goBack(BuildContext context) {
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context);
-    }
-  }
-
-  // Lista para el drawer
-  static List<NavigationItem> get allRoutes => [
-    NavigationItem('Principal', principal, Icons.home),
-    NavigationItem('Registro de usuario', registro_de_usuario, Icons.person),
-    NavigationItem('Listar Usuarios', listar__usuarios, Icons.list),
-  ];
-}
-
-// Item simple de navegación
-class NavigationItem {
-  final String title;
-  final String route;
-  final IconData icon;
-  const NavigationItem(this.title, this.route, this.icon);
-}
-
-// Drawer automático
-class AppDrawer extends StatelessWidget {
-  const AppDrawer({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          const DrawerHeader(
-            decoration: BoxDecoration(color: Colors.blue),
-            child: Text(
-              'Navegación',
-              style: TextStyle(color: Colors.white, fontSize: 24),
-            ),
-          ),
-          ...AppNavigation.allRoutes.map((item) => ListTile(
-            leading: Icon(item.icon),
-            title: Text(item.title),
-            onTap: () {
-              Navigator.pop(context);
-              AppNavigation.goTo(context, item.route);
+    return MultiProvider(
+      providers: [
+        // Auth Provider
+        ChangeNotifierProvider(
+          create: (context) => AuthProvider(),
+        ),
+        
+        // Aquí irán más providers cuando los necesites:
+        // ChangeNotifierProvider(create: (context) => ProductProvider()),
+        // ChangeNotifierProvider(create: (context) => CartProvider()),
+        // etc...
+      ],
+      child: Consumer<AuthProvider>(
+        builder: (context, authProvider, child) {
+          return MaterialApp(
+            title: 'Tienda Virtual',
+            debugShowCheckedModeBanner: false,
+            
+            // Tema de la aplicación
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: ThemeMode.light, // Por ahora solo modo claro
+            
+            // Configuración de localización
+            locale: const Locale('es', 'ES'),
+            
+            // Rutas de la aplicación
+            initialRoute: '/splash',
+            routes: {
+            
+              '/login': (context) => const LoginPage(),
+              '/register': (context) => const RegisterPage(),
+             
             },
-          )),
-        ],
+            
+            // Manejo de rutas desconocidas
+            onUnknownRoute: (settings) {
+              return MaterialPageRoute(
+                builder: (context) => const LoginPage(),
+              );
+            },
+            
+            // Builder para configuraciones globales
+            builder: (context, child) {
+              return GestureDetector(
+                // Ocultar teclado al tocar fuera de un campo de texto
+                onTap: () {
+                  FocusScope.of(context).unfocus();
+                },
+                child: child,
+              );
+            },
+          );
+        },
       ),
     );
   }
