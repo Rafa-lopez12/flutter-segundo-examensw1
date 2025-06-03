@@ -13,7 +13,11 @@ import '../../widgets/common/section_header.dart';
 import '../../widgets/product/product_card.dart';
 import '../../widgets/product/category_card.dart';
 import '../../widgets/common/custom_button.dart';
+import '../../widgets/catalog/filter_bottom_sheet.dart';
+import '../../widgets/catalog/sort_bottom_sheet.dart';
+import '../../providers/product_provider.dart';
 import '../../providers/cart_provider.dart';
+import '../product/product_detail_page.dart';
 
 class CatalogPage extends StatefulWidget {
   const CatalogPage({Key? key}) : super(key: key);
@@ -32,15 +36,17 @@ class _CatalogPageState extends State<CatalogPage>
   late TabController _tabController;
   
   bool _showAppBarShadow = false;
-  String _selectedCategory = 'Todos';
-  String _sortBy = 'name';
-  bool _showFilters = false;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _tabController = TabController(length: _categories.length, vsync: this);
+    
+    // Initialize provider and load data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final productProvider = Provider.of<ProductProvider>(context, listen: false);
+      productProvider.initialize();
+    });
   }
 
   @override
@@ -58,6 +64,13 @@ class _CatalogPageState extends State<CatalogPage>
         _showAppBarShadow = showShadow;
       });
     }
+
+    // Load more products when reaching the bottom
+    if (_scrollController.position.pixels >= 
+        _scrollController.position.maxScrollExtent - 200) {
+      final productProvider = Provider.of<ProductProvider>(context, listen: false);
+      productProvider.loadMoreProducts();
+    }
   }
 
   @override
@@ -66,35 +79,49 @@ class _CatalogPageState extends State<CatalogPage>
     
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: NestedScrollView(
-        controller: _scrollController,
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            // App Bar
-            _buildAppBar(),
-            
-            // Search Bar
-            SliverToBoxAdapter(
-              child: _buildSearchSection(),
-            ),
-            
-            // Category Tabs
-            SliverToBoxAdapter(
-              child: _buildCategoryTabs(),
-            ),
-            
-            // Filters and Sort
-            SliverToBoxAdapter(
-              child: _buildFiltersSection(),
-            ),
-          ];
+      body: Consumer<ProductProvider>(
+        builder: (context, productProvider, child) {
+          // Initialize tab controller when categories are loaded
+          if (productProvider.hasCategories && 
+              (_tabController.length != productProvider.categories.length + 1)) {
+            _tabController = TabController(
+              length: productProvider.categories.length + 1, 
+              vsync: this
+            );
+          }
+
+          return NestedScrollView(
+            controller: _scrollController,
+            headerSliverBuilder: (context, innerBoxIsScrolled) {
+              return [
+                // App Bar
+                _buildAppBar(productProvider),
+                
+                // Search Bar
+                SliverToBoxAdapter(
+                  child: _buildSearchSection(),
+                ),
+                
+                // Category Tabs
+                if (productProvider.hasCategories)
+                  SliverToBoxAdapter(
+                    child: _buildCategoryTabs(productProvider),
+                  ),
+                
+                // Filters and Sort
+                SliverToBoxAdapter(
+                  child: _buildFiltersSection(productProvider),
+                ),
+              ];
+            },
+            body: _buildContent(productProvider),
+          );
         },
-        body: _buildProductGrid(),
       ),
     );
   }
 
-  Widget _buildAppBar() {
+  Widget _buildAppBar(ProductProvider productProvider) {
     return SliverAppBar(
       floating: true,
       pinned: true,
@@ -119,7 +146,7 @@ class _CatalogPageState extends State<CatalogPage>
         FadeInDown(
           duration: const Duration(milliseconds: 800),
           child: IconButton(
-            onPressed: _onFiltersTapped,
+            onPressed: () => _showFiltersBottomSheet(productProvider),
             icon: Stack(
               children: [
                 Icon(
@@ -127,7 +154,7 @@ class _CatalogPageState extends State<CatalogPage>
                   color: AppColors.textPrimary,
                   size: 24,
                 ),
-                if (_showFilters)
+                if (productProvider.hasFiltersApplied)
                   Positioned(
                     right: 0,
                     top: 0,
@@ -167,7 +194,9 @@ class _CatalogPageState extends State<CatalogPage>
     );
   }
 
-  Widget _buildCategoryTabs() {
+  Widget _buildCategoryTabs(ProductProvider productProvider) {
+    final categories = ['Todos', ...productProvider.categories.map((c) => c.name)];
+    
     return FadeInUp(
       duration: const Duration(milliseconds: 800),
       child: Container(
@@ -194,26 +223,23 @@ class _CatalogPageState extends State<CatalogPage>
             borderRadius: BorderRadius.circular(20),
           ),
           indicatorPadding: const EdgeInsets.symmetric(horizontal: -12, vertical: 8),
-          tabs: _categories.map((category) {
+          tabs: categories.map((category) {
             return Tab(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(category['name']),
+                child: Text(category),
               ),
             );
           }).toList(),
           onTap: (index) {
-            setState(() {
-              _selectedCategory = _categories[index]['name'];
-            });
-            HapticFeedback.lightImpact();
+            _onCategoryChanged(index, productProvider);
           },
         ),
       ),
     );
   }
 
-  Widget _buildFiltersSection() {
+  Widget _buildFiltersSection(ProductProvider productProvider) {
     return FadeInUp(
       duration: const Duration(milliseconds: 1000),
       child: Container(
@@ -223,21 +249,49 @@ class _CatalogPageState extends State<CatalogPage>
         ),
         child: Row(
           children: [
-            // Results count
+            // Results count and filters
             Expanded(
-              child: Text(
-                '${_getFilteredProducts().length} productos encontrados',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w500,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${productProvider.totalProducts} productos encontrados',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (productProvider.hasFiltersApplied)
+                    Text(
+                      productProvider.filterSummary,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                ],
               ),
             ),
             
+            // Clear filters button
+            if (productProvider.hasFiltersApplied)
+              TextButton(
+                onPressed: () => _onClearFilters(productProvider),
+                child: Text(
+                  'Limpiar',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            
             // Sort button
             GestureDetector(
-              onTap: _onSortTapped,
+              onTap: () => _showSortBottomSheet(productProvider),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -271,90 +325,36 @@ class _CatalogPageState extends State<CatalogPage>
     );
   }
 
-  Widget _buildProductGrid() {
-    final products = _getFilteredProducts();
-    final crossAxisCount = ResponsiveUtils.getGridColumns(context);
-    
-    if (products.isEmpty) {
-      return _buildEmptyState();
+  Widget _buildContent(ProductProvider productProvider) {
+    if (productProvider.isLoading && productProvider.products.isEmpty) {
+      return _buildLoadingState();
     }
 
-    return FadeInUp(
-      duration: const Duration(milliseconds: 1200),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: ResponsiveUtils.getHorizontalPadding(context),
-        ),
-        child: GridView.builder(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 100),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            childAspectRatio: 0.75,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-          ),
-          itemCount: products.length,
-          itemBuilder: (context, index) {
-            final product = products[index];
-            return ProductCard(
-              product: product,
-              onTap: () => _onProductTapped(product),
-              onAddToCart: () => _onAddToCartTapped(product),
-              onFavorite: () => _onFavoriteTapped(product),
-              showNewBadge: product['isNew'] ?? false,
-            );
-          },
-        ),
-      ),
-    );
+    if (productProvider.errorMessage != null && productProvider.products.isEmpty) {
+      return _buildErrorState(productProvider);
+    }
+
+    if (productProvider.products.isEmpty) {
+      return _buildEmptyState(productProvider);
+    }
+
+    return _buildProductGrid(productProvider);
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildLoadingState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          FadeIn(
-            duration: const Duration(milliseconds: 800),
-            child: Icon(
-              IconlyLight.search,
-              size: 80,
-              color: AppColors.textSecondary,
-            ),
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
           ),
           const SizedBox(height: 16),
-          FadeInUp(
-            duration: const Duration(milliseconds: 1000),
-            child: Text(
-              AppStrings.noProducts,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          FadeInUp(
-            duration: const Duration(milliseconds: 1200),
-            child: Text(
-              'Intenta con otros filtros o categorías',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 24),
-          FadeInUp(
-            duration: const Duration(milliseconds: 1400),
-            child: CustomButton(
-              text: 'Limpiar Filtros',
-              onPressed: _onClearFiltersTapped,
-              type: ButtonType.outline,
-              icon: IconlyLight.delete,
+          Text(
+            'Cargando productos...',
+            style: TextStyle(
+              fontSize: 16,
+              color: AppColors.textSecondary,
             ),
           ),
         ],
@@ -362,59 +362,268 @@ class _CatalogPageState extends State<CatalogPage>
     );
   }
 
+  Widget _buildErrorState(ProductProvider productProvider) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              IconlyLight.info_circle,
+              size: 64,
+              color: AppColors.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Error al cargar productos',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              productProvider.errorMessage ?? 'Error desconocido',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            CustomButton(
+              text: 'Reintentar',
+              onPressed: () => productProvider.loadProducts(refresh: true),
+              icon: IconlyLight.delete,
+              type: ButtonType.outline,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(ProductProvider productProvider) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FadeIn(
+              duration: const Duration(milliseconds: 800),
+              child: Icon(
+                IconlyLight.search,
+                size: 80,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FadeInUp(
+              duration: const Duration(milliseconds: 1000),
+              child: Text(
+                AppStrings.noProducts,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FadeInUp(
+              duration: const Duration(milliseconds: 1200),
+              child: Text(
+                productProvider.hasFiltersApplied
+                    ? 'Intenta ajustar los filtros o busca otros productos'
+                    : 'No hay productos disponibles en este momento',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            if (productProvider.hasFiltersApplied) ...[
+              const SizedBox(height: 24),
+              FadeInUp(
+                duration: const Duration(milliseconds: 1400),
+                child: CustomButton(
+                  text: 'Limpiar Filtros',
+                  onPressed: () => _onClearFilters(productProvider),
+                  type: ButtonType.outline,
+                  icon: IconlyLight.delete,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProductGrid(ProductProvider productProvider) {
+    final crossAxisCount = ResponsiveUtils.getGridColumns(context);
+    
+    return FadeInUp(
+      duration: const Duration(milliseconds: 1200),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: ResponsiveUtils.getHorizontalPadding(context),
+        ),
+        child: Column(
+          children: [
+            // Products Grid
+            Expanded(
+              child: GridView.builder(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(bottom: 20),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  childAspectRatio: 0.75,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                itemCount: productProvider.products.length + 
+                           (productProvider.hasMoreProducts ? 1 : 0),
+                itemBuilder: (context, index) {
+                  // Show loading indicator at the end if there are more products
+                  if (index >= productProvider.products.length) {
+                    return _buildLoadMoreIndicator(productProvider);
+                  }
+                  
+                  final product = productProvider.products[index];
+                  return ProductCard(
+                    product: product.toDisplayMap(),
+                    onTap: () => _onProductTapped(product),
+                    onAddToCart: () => _onAddToCartTapped(product),
+                    onFavorite: () => _onFavoriteTapped(product),
+                    showNewBadge: false, // Could be based on creation date
+                  );
+                },
+              ),
+            ),
+            
+            // Load more button (alternative to automatic loading)
+            if (productProvider.hasMoreProducts && !productProvider.isLoadingMore)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: CustomButton(
+                  text: 'Cargar más productos',
+                  onPressed: () => productProvider.loadMoreProducts(),
+                  type: ButtonType.outline,
+                  icon: IconlyLight.arrow_down_2,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreIndicator(ProductProvider productProvider) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Center(
+        child: productProvider.isLoadingMore
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Cargando...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              )
+            : Icon(
+                IconlyLight.arrow_down_2,
+                color: AppColors.textSecondary,
+              ),
+      ),
+    );
+  }
+
   // Event handlers
   void _onSearchTapped() {
     HapticFeedback.lightImpact();
-    // TODO: Navigate to search page
+    Navigator.pushNamed(context, '/search');
   }
 
   void _onCameraSearchTapped() {
     HapticFeedback.lightImpact();
-    // TODO: Navigate to AI search camera
+    Navigator.pushNamed(context, '/ai-search');
   }
 
   void _onVoiceSearchTapped() {
     HapticFeedback.lightImpact();
     // TODO: Implement voice search
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Búsqueda por voz próximamente')),
+    );
   }
 
-  void _onFiltersTapped() {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _showFilters = !_showFilters;
-    });
-    // TODO: Show filters bottom sheet
-    _showFiltersBottomSheet();
-  }
-
-  void _onSortTapped() {
-    HapticFeedback.lightImpact();
-    _showSortBottomSheet();
-  }
-
-  void _onProductTapped(Map<String, dynamic> product) {
-    HapticFeedback.lightImpact();
-    // TODO: Navigate to product detail
-  }
-
-  void _onAddToCartTapped(Map<String, dynamic> product) {
+  void _onCategoryChanged(int index, ProductProvider productProvider) {
     HapticFeedback.lightImpact();
     
-    // Add to cart with default values
+    if (index == 0) {
+      // "Todos" selected
+      productProvider.clearFilters();
+    } else {
+      final category = productProvider.categories[index - 1];
+      productProvider.filterByCategory(category.id);
+    }
+  }
+
+  void _onProductTapped(dynamic product) {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProductDetailPage(productId: product.id),
+      ),
+    );
+  }
+
+  void _onAddToCartTapped(dynamic product) {
+    HapticFeedback.lightImpact();
+    
     final cartProvider = Provider.of<CartProvider>(context, listen: false);
+    
+    // For now, add with default variant
+    final defaultVariant = product.variants.isNotEmpty ? product.variants.first : null;
+    
+    if (defaultVariant == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Producto sin variantes disponibles'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
     cartProvider.addItem(
-      productId: product['id'],
-      name: product['name'],
-      price: product['price'].toDouble(),
-      image: product['image'] ?? '',
-      size: 'M', // Default size
-      color: 'Default', // Default color
+      productId: product.id,
+      name: product.name,
+      price: defaultVariant.price,
+      image: product.mainImage,
+      size: defaultVariant.size.name,
+      color: defaultVariant.color,
     );
 
-    // Show success message
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${product['name']} agregado al carrito'),
+        content: Text('${product.name} agregado al carrito'),
         backgroundColor: AppColors.success,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
@@ -422,279 +631,58 @@ class _CatalogPageState extends State<CatalogPage>
     );
   }
 
-  void _onFavoriteTapped(Map<String, dynamic> product) {
+  void _onFavoriteTapped(dynamic product) {
     HapticFeedback.lightImpact();
-    // TODO: Toggle favorite
-  }
-
-  void _onClearFiltersTapped() {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _selectedCategory = 'Todos';
-      _sortBy = 'name';
-      _showFilters = false;
-    });
-    _tabController.animateTo(0);
-  }
-
-  // Bottom sheets
-  void _showFiltersBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              Text(
-                'Filtros',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              Text(
-                'Rango de Precios',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // TODO: Add price range slider
-              Container(
-                height: 50,
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Text(
-                    'Slider de precios - Próximamente',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              CustomButton(
-                text: 'Aplicar Filtros',
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-              ),
-            ],
-          ),
-        );
-      },
+    // TODO: Implement favorites
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Favoritos próximamente')),
     );
   }
 
-  void _showSortBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              Text(
-                'Ordenar por',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              ..._sortOptions.map((option) {
-                return ListTile(
-                  title: Text(option['label']),
-                  leading: Radio<String>(
-                    value: option['value'],
-                    groupValue: _sortBy,
-                    onChanged: (value) {
-                      setState(() {
-                        _sortBy = value!;
-                      });
-                      Navigator.of(context).pop();
-                    },
-                    activeColor: AppColors.primary,
-                  ),
-                  onTap: () {
-                    setState(() {
-                      _sortBy = option['value'];
-                    });
-                    Navigator.of(context).pop();
-                  },
-                );
-              }).toList(),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // Data filtering and sorting
-  List<Map<String, dynamic>> _getFilteredProducts() {
-    List<Map<String, dynamic>> filtered = List.from(_mockProducts);
-    
-    // Filter by category
-    if (_selectedCategory != 'Todos') {
-      filtered = filtered.where((product) {
-        return product['category'] == _selectedCategory;
-      }).toList();
+  void _onClearFilters(ProductProvider productProvider) {
+    HapticFeedback.lightImpact();
+    productProvider.clearFilters();
+    if (_tabController.index != 0) {
+      _tabController.animateTo(0);
     }
-    
-    // Sort products
-    filtered.sort((a, b) {
-      switch (_sortBy) {
-        case 'price_low':
-          return a['price'].compareTo(b['price']);
-        case 'price_high':
-          return b['price'].compareTo(a['price']);
-        case 'rating':
-          return (b['rating'] ?? 0).compareTo(a['rating'] ?? 0);
-        case 'name':
-        default:
-          return a['name'].compareTo(b['name']);
-      }
-    });
-    
-    return filtered;
   }
 
-  // Mock data
-  final List<Map<String, dynamic>> _categories = [
-    {'name': 'Todos', 'icon': IconlyLight.category},
-    {'name': 'Camisas', 'icon': IconlyLight.paper},
-    {'name': 'Pantalones', 'icon': IconlyLight.bag},
-    {'name': 'Vestidos', 'icon': IconlyLight.star},
-    {'name': 'Zapatos', 'icon': IconlyLight.heart},
-    {'name': 'Accesorios', 'icon': IconlyLight.bookmark},
-  ];
+  void _showFiltersBottomSheet(ProductProvider productProvider) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => FilterBottomSheet(
+        productProvider: productProvider,
+      ),
+    );
+  }
 
-  final List<Map<String, dynamic>> _sortOptions = [
-    {'label': 'Nombre (A-Z)', 'value': 'name'},
-    {'label': 'Precio: Menor a Mayor', 'value': 'price_low'},
-    {'label': 'Precio: Mayor a Menor', 'value': 'price_high'},
-    {'label': 'Mejor Calificación', 'value': 'rating'},
-  ];
+  void _showSortBottomSheet(ProductProvider productProvider) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SortBottomSheet(
+        productProvider: productProvider,
+      ),
+    );
+  }
+}
 
-  final List<Map<String, dynamic>> _mockProducts = [
-    {
-      'id': '1',
-      'name': 'Camisa Elegante Azul',
-      'category': 'Camisas',
-      'price': 89.99,
-      'originalPrice': 120.00,
-      'image': 'https://images.unsplash.com/photo-1571945153237-4929e783af4a?w=400',
-      'rating': 4.5,
-      'isFavorite': false,
-      'isNew': true,
-    },
-    {
-      'id': '2',
-      'name': 'Vestido Casual Rosa',
-      'category': 'Vestidos',
-      'price': 65.00,
-      'image': 'https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=400',
-      'rating': 4.8,
-      'isFavorite': true,
-      'isNew': false,
-    },
-    {
-      'id': '3',
-      'name': 'Pantalón Formal Negro',
-      'category': 'Pantalones',
-      'price': 75.50,
-      'originalPrice': 95.00,
-      'image': 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=400',
-      'rating': 4.2,
-      'isFavorite': false,
-      'isNew': false,
-    },
-    {
-      'id': '4',
-      'name': 'Zapatos Deportivos',
-      'category': 'Zapatos',
-      'price': 120.00,
-      'image': 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400',
-      'rating': 4.6,
-      'isFavorite': true,
-      'isNew': true,
-    },
-    {
-      'id': '5',
-      'name': 'Reloj Clásico',
-      'category': 'Accesorios',
-      'price': 199.99,
-      'originalPrice': 250.00,
-      'image': 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400',
-      'rating': 4.9,
-      'isFavorite': false,
-      'isNew': false,
-    },
-    {
-      'id': '6',
-      'name': 'Camisa Casual Blanca',
-      'category': 'Camisas',
-      'price': 45.00,
-      'image': 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400',
-      'rating': 4.3,
-      'isFavorite': false,
-      'isNew': true,
-    },
-  ];
+// Extension to convert ProductModel to display format
+extension ProductModelExtension on dynamic {
+  Map<String, dynamic> toDisplayMap() {
+    return {
+      'id': id,
+      'name': name,
+      'price': minPrice,
+      'originalPrice': hasDiscount ? maxPrice : null,
+      'image': mainImage,
+      'rating': 4.5, // Placeholder, implement rating system
+      'isFavorite': false, // Placeholder, implement favorites
+      'category': category.name,
+    };
+  }
 }
