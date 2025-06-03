@@ -1,6 +1,7 @@
 // lib/presentation/pages/auth/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fluttersw1/presentation/providers/cart_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:iconly/iconly.dart';
@@ -526,37 +527,81 @@ class _LoginPageState extends State<LoginPage>
     );
   }
 
-  void _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+void _handleLogin() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    // Add haptic feedback
-    HapticFeedback.lightImpact();
+  // Add haptic feedback
+  HapticFeedback.lightImpact();
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
-    try {
-      await authProvider.login(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-        rememberMe: _rememberMe,
-      );
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final cartProvider = Provider.of<CartProvider>(context, listen: false);
+  try {
+    await authProvider.login(
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+      rememberMe: _rememberMe,
+    );
 
-      if (authProvider.isAuthenticated) {
-        Navigator.of(context).pushReplacementNamed('/main');
-      }
-    } catch (error) {
+    if (authProvider.isAuthenticated && mounted) {
+      // Cargar el carrito del usuario
+      await cartProvider.loadCart();
+      
+      // Mostrar mensaje de bienvenida
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.toString()),
+          content: Text('¡Bienvenido, ${authProvider.currentUser?.firstName}!'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Navegar a la pantalla principal
+      Navigator.of(context).pushReplacementNamed('/main');
+    }
+  } catch (error) {
+    if (mounted) {
+      String errorMessage = 'Error de conexión';
+      
+      // Personalizar mensaje según el tipo de error
+      if (error.toString().contains('Credentials are not valid')) {
+        errorMessage = 'Email o contraseña incorrectos';
+      } else if (error.toString().contains('User is inactive')) {
+        errorMessage = 'Cuenta inactiva. Contacta al administrador';
+      } else if (error.toString().contains('Error de conexión')) {
+        errorMessage = 'Problema de conexión. Verifica tu internet';
+      } else if (error.toString().contains('401')) {
+        errorMessage = 'Credenciales inválidas';
+      } else if (error.toString().contains('404')) {
+        errorMessage = 'Servicio no disponible';
+      } else if (error.toString().contains('500')) {
+        errorMessage = 'Error del servidor. Intenta más tarde';
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Reintentar',
+            textColor: Colors.white,
+            onPressed: () {
+              _handleLogin();
+            },
+          ),
         ),
       );
     }
   }
+}
 
   void _handleForgotPassword() {
     // Add haptic feedback

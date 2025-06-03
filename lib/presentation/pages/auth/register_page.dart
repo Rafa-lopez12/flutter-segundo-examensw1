@@ -1,6 +1,7 @@
 // lib/presentation/pages/auth/register_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fluttersw1/presentation/providers/cart_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:iconly/iconly.dart';
@@ -758,64 +759,98 @@ class _RegisterPageState extends State<RegisterPage>
     }
   }
 
-  void _handleRegister() async {
-    if (!_validateCurrentStep()) {
+void _handleRegister() async {
+  if (!_validateCurrentStep()) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Por favor acepta los términos y condiciones'),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+    return;
+  }
+
+  // Add haptic feedback
+  HapticFeedback.lightImpact();
+
+  final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  final cartProvider = Provider.of<CartProvider>(context, listen: false);
+  
+  try {
+    await authProvider.register(
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+      phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+      address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
+      acceptNewsletter: _acceptNewsletter,
+    );
+
+    if (authProvider.isAuthenticated && mounted) {
+      // Inicializar carrito para nuevo usuario
+      await cartProvider.loadCart();
+      
+      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Por favor acepta los términos y condiciones'),
-          backgroundColor: AppColors.error,
+          content: Text('¡Cuenta creada exitosamente! Bienvenido, ${authProvider.currentUser?.firstName}!'),
+          backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          duration: const Duration(seconds: 3),
         ),
       );
-      return;
+      
+      // Navigate to main app
+      Navigator.of(context).pushReplacementNamed('/main');
     }
-
-    // Add haptic feedback
-    HapticFeedback.lightImpact();
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    
-    try {
-      await authProvider.register(
-        firstName: _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-        phone: _phoneController.text.trim(),
-        address: _addressController.text.trim(),
-        acceptNewsletter: _acceptNewsletter,
-      );
-
-      if (authProvider.isAuthenticated) {
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppStrings.accountCreated),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
-        
-        // Navigate to main app
-        Navigator.of(context).pushReplacementNamed('/main');
+  } catch (error) {
+    if (mounted) {
+      String errorMessage = 'Error creando cuenta';
+      
+      // Personalizar mensaje según el tipo de error
+      if (error.toString().contains('email already exists') || 
+          error.toString().contains('ya está registrado')) {
+        errorMessage = 'Este email ya está registrado. Intenta iniciar sesión';
+      } else if (error.toString().contains('weak password') || 
+                 error.toString().contains('password must have')) {
+        errorMessage = 'La contraseña no cumple los requisitos de seguridad';
+      } else if (error.toString().contains('invalid email')) {
+        errorMessage = 'El formato del email no es válido';
+      } else if (error.toString().contains('Error de conexión')) {
+        errorMessage = 'Problema de conexión. Verifica tu internet';
+      } else if (error.toString().contains('400')) {
+        errorMessage = 'Datos inválidos. Verifica la información';
+      } else if (error.toString().contains('500')) {
+        errorMessage = 'Error del servidor. Intenta más tarde';
       }
-    } catch (error) {
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.toString()),
+          content: Text(errorMessage),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
+          ),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Reintentar',
+            textColor: Colors.white,
+            onPressed: () {
+              _handleRegister();
+            },
           ),
         ),
       );
     }
   }
+}
 }

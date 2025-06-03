@@ -1,41 +1,21 @@
-// lib/presentation/providers/auth_provider.dart
 import 'package:flutter/foundation.dart';
-
-// Modelo temporal básico de Cliente para el diseño
-class Cliente {
-  final String id;
-  final String email;
-  final String firstName;
-  final String lastName;
-  final String? phone;
-  final String? address;
-  final bool isActive;
-  final String tenantId;
-
-  Cliente({
-    required this.id,
-    required this.email,
-    required this.firstName,
-    required this.lastName,
-    this.phone,
-    this.address,
-    required this.isActive,
-    required this.tenantId,
-  });
-
-  String get fullName => '$firstName $lastName';
-}
+import '../../core/services/auth_service.dart';
+import '../../data/models/auth/cliente_model.dart';
+// import '../../data/models/auth/login_request_model.dart';
+// import '../../data/models/auth/register_request_model.dart';
 
 class AuthProvider extends ChangeNotifier {
+  final AuthService _authService = AuthService();
+
   // State variables
-  Cliente? _currentUser;
+  ClienteModel? _currentUser;
   bool _isLoading = false;
   bool _isAuthenticated = false;
   String? _errorMessage;
   String? _token;
 
   // Getters
-  Cliente? get currentUser => _currentUser;
+  ClienteModel? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
   String? get errorMessage => _errorMessage;
@@ -43,23 +23,43 @@ class AuthProvider extends ChangeNotifier {
   String? get userFullName => _currentUser?.fullName;
   String? get userEmail => _currentUser?.email;
   String? get userId => _currentUser?.id;
+  String? get tenantId => _currentUser?.tenantId;
 
-  // Initialize auth state (temporal - sin persistencia)
+  // Initialize auth state
   Future<void> initializeAuth() async {
     _setLoading(true);
     
-    // Simular verificación de token guardado
-    await Future.delayed(const Duration(milliseconds: 500));
-    
-    // Por ahora, siempre empezamos sin autenticar
-    _isAuthenticated = false;
-    _currentUser = null;
-    _token = null;
-    
-    _setLoading(false);
+    try {
+      // Verificar si hay datos guardados localmente
+      final isLoggedIn = await _authService.isLoggedIn();
+      
+      if (isLoggedIn) {
+        // Intentar verificar el estado con el servidor
+        try {
+          _currentUser = await _authService.checkAuthStatus();
+          _token = await _authService.getStoredToken();
+          _isAuthenticated = true;
+        } catch (e) {
+          // Si falla la verificación, usar datos locales
+          _currentUser = await _authService.getStoredUser();
+          _token = await _authService.getStoredToken();
+          _isAuthenticated = _currentUser != null && _token != null;
+          
+          if (!_isAuthenticated) {
+            await _authService.clearAuthData();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error initializing auth: $e');
+      await _authService.clearAuthData();
+      _isAuthenticated = false;
+    } finally {
+      _setLoading(false);
+    }
   }
 
-  // Login method (temporal - solo para UI)
+  // Login method
   Future<void> login({
     required String email,
     required String password,
@@ -67,49 +67,27 @@ class AuthProvider extends ChangeNotifier {
   }) async {
     _setLoading(true);
     _clearError();
-
     try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(seconds: 2));
-      
-      // Simular validación básica
-      if (email.isEmpty || password.isEmpty) {
-        throw Exception('Email y contraseña son requeridos');
-      }
-      
-      if (!email.contains('@')) {
-        throw Exception('Email inválido');
-      }
-      
-      if (password.length < 6) {
-        throw Exception('Contraseña muy corta');
-      }
-
-      // Simular respuesta exitosa - crear usuario temporal
-      _currentUser = Cliente(
-        id: 'temp_user_123',
-        email: email,
-        firstName: 'Usuario',
-        lastName: 'Demo',
-        phone: null,
-        address: null,
-        isActive: true,
-        tenantId: 'temp_tenant_123',
+      final request = LoginRequestModel(
+        email: email.trim(),
+        password: password,
       );
-      
-      _token = 'temp_token_${DateTime.now().millisecondsSinceEpoch}';
+      final response = await _authService.login(request);
+      _currentUser = response.toClienteModel();
+      _token = response.token;
       _isAuthenticated = true;
 
+      debugPrint('Login successful for user: ${_currentUser?.email}');
       notifyListeners();
     } catch (e) {
       _handleError(e);
-      throw e;
+      rethrow;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Register method (temporal - solo para UI)
+  // Register method
   Future<void> register({
     required String firstName,
     required String lastName,
@@ -124,67 +102,49 @@ class AuthProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(seconds: 2));
-      
-      // Simular validación básica
-      if (firstName.isEmpty || lastName.isEmpty || email.isEmpty || password.isEmpty) {
-        throw Exception('Todos los campos obligatorios deben completarse');
-      }
-      
-      if (!email.contains('@')) {
-        throw Exception('Email inválido');
-      }
-      
-      if (password.length < 6) {
-        throw Exception('Contraseña muy corta');
-      }
-
-      // Simular respuesta exitosa - crear usuario temporal
-      _currentUser = Cliente(
-        id: 'temp_user_${DateTime.now().millisecondsSinceEpoch}',
-        email: email,
-        firstName: firstName,
-        lastName: lastName,
-        phone: phone,
-        address: address,
-        isActive: true,
-        tenantId: 'temp_tenant_123',
+      final request = RegisterRequestModel(
+        email: email.trim(),
+        password: password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        telefono: phone?.trim(),
+        direccion: address?.trim(),
       );
+
+      final response = await _authService.register(request);
       
-      _token = 'temp_token_${DateTime.now().millisecondsSinceEpoch}';
+      _currentUser = response.toClienteModel();
+      _token = response.token;
       _isAuthenticated = true;
 
+      debugPrint('Registration successful for user: ${_currentUser?.email}');
       notifyListeners();
     } catch (e) {
       _handleError(e);
-      throw e;
+      rethrow;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Logout method (temporal)
+  // Logout method
   Future<void> logout() async {
     _setLoading(true);
 
     try {
-      // Simular llamada a logout
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Limpiar datos locales
+      await _authService.logout();
       await _clearAuthData();
-      
+      debugPrint('Logout successful');
     } catch (e) {
       debugPrint('Error during logout: $e');
-      // Limpiar datos aunque haya error
+      // Limpiar datos locales aunque haya error
       await _clearAuthData();
     } finally {
       _setLoading(false);
     }
   }
 
-  // Update user profile (temporal)
+  // Update user profile
   Future<void> updateProfile({
     String? firstName,
     String? lastName,
@@ -197,31 +157,88 @@ class AuthProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(seconds: 1));
+      final updateData = <String, dynamic>{};
       
-      // Crear usuario actualizado
-      _currentUser = Cliente(
-        id: _currentUser!.id,
-        email: _currentUser!.email,
-        firstName: firstName ?? _currentUser!.firstName,
-        lastName: lastName ?? _currentUser!.lastName,
-        phone: phone ?? _currentUser!.phone,
-        address: address ?? _currentUser!.address,
-        isActive: _currentUser!.isActive,
-        tenantId: _currentUser!.tenantId,
-      );
+      if (firstName != null) updateData['firstName'] = firstName.trim();
+      if (lastName != null) updateData['lastName'] = lastName.trim();
+      if (phone != null) updateData['telefono'] = phone.trim();
+      if (address != null) updateData['direccion'] = address.trim();
+
+      _currentUser = await _authService.updateProfile(updateData);
       
+      debugPrint('Profile updated successfully');
       notifyListeners();
     } catch (e) {
       _handleError(e);
-      throw e;
+      rethrow;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Simular cambio de contraseña
+  // Refresh user data
+  Future<void> refreshUserData() async {
+    if (!_isAuthenticated) return;
+
+    try {
+      _currentUser = await _authService.checkAuthStatus();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to refresh user data: $e');
+      // Si falla la verificación, podría ser que el token expiró
+      if (e.toString().contains('Sesión expirada') || 
+          e.toString().contains('401')) {
+        await logout();
+      }
+    }
+  }
+
+  // Check if user has specific permission (placeholder)
+  bool hasPermission(String permission) {
+    return _isAuthenticated && _currentUser?.isActive == true;
+  }
+
+  // Verify if email is verified
+  bool get isEmailVerified {
+    return _currentUser?.isActive ?? false;
+  }
+
+  // Get user initials
+  String get userInitials {
+    if (_currentUser == null) return 'U';
+    
+    final firstName = _currentUser!.firstName;
+    final lastName = _currentUser!.lastName;
+    
+    if (firstName.isEmpty && lastName.isEmpty) return 'U';
+    
+    return '${firstName.isNotEmpty ? firstName[0].toUpperCase() : ''}'
+           '${lastName.isNotEmpty ? lastName[0].toUpperCase() : ''}';
+  }
+
+  // Check if user is new (registered recently)
+  bool get isNewUser {
+    // Esta lógica se puede implementar basándose en la fecha de registro
+    // Por ahora retorna false
+    return false;
+  }
+
+  // Auto-login attempt
+  Future<bool> tryAutoLogin() async {
+    try {
+      final isLoggedIn = await _authService.isLoggedIn();
+      if (isLoggedIn) {
+        await initializeAuth();
+        return _isAuthenticated;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Auto-login failed: $e');
+      return false;
+    }
+  }
+
+  // Change password (placeholder - requiere endpoint en backend)
   Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -230,103 +247,59 @@ class AuthProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      // Simular validación y llamada a API
+      // TODO: Implementar endpoint en backend para cambiar contraseña
       await Future.delayed(const Duration(seconds: 1));
       
-      if (currentPassword.isEmpty || newPassword.isEmpty) {
-        throw Exception('Ambas contraseñas son requeridas');
-      }
-      
-      if (newPassword.length < 6) {
-        throw Exception('La nueva contraseña debe tener al menos 6 caracteres');
-      }
-      
-      // Simular éxito
-      notifyListeners();
+      // Por ahora solo simular
+      throw UnimplementedError('Cambio de contraseña no implementado en el backend');
     } catch (e) {
       _handleError(e);
-      throw e;
+      rethrow;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Auto-login (temporal - siempre retorna false)
-  Future<bool> tryAutoLogin() async {
-    // Por ahora no implementamos auto-login
-    return false;
-  }
-
-  // Refresh user data (temporal)
-  Future<void> refreshUserData() async {
-    if (!_isAuthenticated || _currentUser == null) return;
-
-    try {
-      // Simular refresh
-      await Future.delayed(const Duration(milliseconds: 500));
-      // Por ahora no hacemos nada, los datos ya están actualizados
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Failed to refresh user data: $e');
-    }
-  }
-
-  // Limpiar todos los datos de autenticación
+  // Private methods
   Future<void> _clearAuthData() async {
     _currentUser = null;
     _token = null;
     _isAuthenticated = false;
     _errorMessage = null;
-    
     notifyListeners();
   }
 
-  // Set loading state
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
   }
 
-  // Handle errors
   void _handleError(dynamic error) {
     _errorMessage = error.toString();
+    debugPrint('Auth Error: $_errorMessage');
     notifyListeners();
   }
 
-  // Clear error message
   void _clearError() {
     _errorMessage = null;
   }
 
-  // Utilidades temporales
-  bool hasPermission(String permission) {
-    return _isAuthenticated;
-  }
-
-  bool get isEmailVerified {
-    return _currentUser?.isActive ?? false;
-  }
-
-  String get userInitials {
-    if (_currentUser == null) return '';
-    
-    final firstName = _currentUser!.firstName;
-    final lastName = _currentUser!.lastName;
-    
-    if (firstName.isEmpty && lastName.isEmpty) return '';
-    
-    return '${firstName.isNotEmpty ? firstName[0].toUpperCase() : ''}'
-           '${lastName.isNotEmpty ? lastName[0].toUpperCase() : ''}';
-  }
-
-  bool get isNewUser => false;
-
-  // Session management (temporal - no implementado)
+  // Session management (placeholder para futuras funcionalidades)
   void startSessionTimer() {
-    // TODO: Implementar cuando sea necesario
+    // TODO: Implementar timer de sesión
   }
 
   void resetSessionTimer() {
-    // TODO: Implementar cuando sea necesario
+    // TODO: Reset timer de sesión
+  }
+
+  // Get authorization header for API calls
+  Map<String, String>? getAuthHeaders() {
+    if (_token == null) return null;
+    
+    return {
+      'Authorization': 'Bearer $_token',
+      'Content-Type': 'application/json',
+    };
   }
 }

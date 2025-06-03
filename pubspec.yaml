@@ -32,7 +32,6 @@ dependencies:
     sdk: flutter
       # State Management
   provider: ^6.1.1
-
   # Network & API
   dio: ^5.3.3
   connectivity_plus: ^5.0.2

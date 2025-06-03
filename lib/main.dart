@@ -1,3 +1,4 @@
+// lib/main.dart - Actualizado con navegación completa
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,9 +6,11 @@ import 'package:provider/provider.dart';
 import 'core/constants/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/providers/auth_provider.dart';
+import 'presentation/providers/cart_provider.dart';
 
 import 'presentation/pages/auth/login_page.dart';
 import 'presentation/pages/auth/register_page.dart';
+import 'presentation/pages/home/main_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,9 +47,16 @@ class TiendaVirtualApp extends StatelessWidget {
           create: (context) => AuthProvider(),
         ),
         
+        // Cart Provider
+        ChangeNotifierProvider(
+          create: (context) => CartProvider(),
+        ),
+        
         // Aquí irán más providers cuando los necesites:
         // ChangeNotifierProvider(create: (context) => ProductProvider()),
-        // ChangeNotifierProvider(create: (context) => CartProvider()),
+        // ChangeNotifierProvider(create: (context) => OrderProvider()),
+        // ChangeNotifierProvider(create: (context) => AISearchProvider()),
+        // ChangeNotifierProvider(create: (context) => VirtualTryonProvider()),
         // etc...
       ],
       child: Consumer<AuthProvider>(
@@ -64,12 +74,12 @@ class TiendaVirtualApp extends StatelessWidget {
             locale: const Locale('es', 'ES'),
             
             // Rutas de la aplicación
-            initialRoute: '/splash',
+            initialRoute: '/login', // Cambiar a '/splash' cuando esté listo
             routes: {
-            
               '/login': (context) => const LoginPage(),
               '/register': (context) => const RegisterPage(),
-             
+              '/main': (context) => const MainPage(),
+              // Rutas adicionales se agregarán aquí
             },
             
             // Manejo de rutas desconocidas
