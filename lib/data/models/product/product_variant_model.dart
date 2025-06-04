@@ -1,3 +1,5 @@
+import 'package:fluttersw1/data/models/product/size_model.dart';
+
 class ProductVariantModel {
   final String id;
   final String color;

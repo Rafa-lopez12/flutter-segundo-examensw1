@@ -1,4 +1,8 @@
 // lib/data/models/product/product_model.dart
+import 'package:fluttersw1/data/models/product/category_model.dart';
+import 'package:fluttersw1/data/models/product/product_image_model.dart';
+import 'package:fluttersw1/data/models/product/product_variant_model.dart';
+
 class ProductModel {
   final String id;
   final String name;
