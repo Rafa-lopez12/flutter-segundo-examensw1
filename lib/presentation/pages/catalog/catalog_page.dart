@@ -18,6 +18,7 @@ import '../../widgets/catalog/sort_bottom_sheet.dart';
 import '../../providers/product_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../product/product_detail_page.dart';
+import '../../../data/models/product/product_model.dart';
 
 class CatalogPage extends StatefulWidget {
   const CatalogPage({Key? key}) : super(key: key);
@@ -671,8 +672,7 @@ class _CatalogPageState extends State<CatalogPage>
   }
 }
 
-// Extension to convert ProductModel to display format
-extension ProductModelExtension on dynamic {
+extension ProductModelExtension on ProductModel {
   Map<String, dynamic> toDisplayMap() {
     return {
       'id': id,

@@ -907,10 +907,9 @@ class _ProductDetailPageState extends State<ProductDetailPage>
     if (product == null) return;
     
     // Buscar la variante específica
-    final variant = product.variants?.firstWhere(
+    final variant = product.variants?.where(
       (v) => v.size.name == _selectedSize && v.color == _selectedColor,
-      orElse: () => null,
-    );
+    ).firstOrNull;
     
     if (variant == null) return;
     

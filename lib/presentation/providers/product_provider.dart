@@ -1,3 +1,4 @@
+// lib/presentation/providers/product_provider.dart
 import 'package:flutter/foundation.dart';
 import '../../core/services/product_service.dart';
 import '../../data/models/product/product_model.dart';
@@ -13,6 +14,7 @@ class ProductProvider extends ChangeNotifier {
   ProductModel? _selectedProduct;
   ProductFilterModel _currentFilter = ProductFilterModel();
   
+  // Loading states
   bool _isLoading = false;
   bool _isLoadingCategories = false;
   bool _isLoadingDetail = false;
@@ -21,6 +23,18 @@ class ProductProvider extends ChangeNotifier {
   // Pagination
   bool _hasMoreProducts = true;
   bool _isLoadingMore = false;
+  
+  // Search and filter states
+  String _lastSearchQuery = '';
+  List<ProductModel> _searchResults = [];
+  List<ProductModel> _featuredProducts = [];
+  List<ProductModel> _newProducts = [];
+  
+  // Cache for performance
+  Map<String, List<ProductModel>> _categoryCache = {};
+  Map<String, ProductModel> _productCache = {};
+  DateTime? _lastCacheUpdate;
+  static const Duration _cacheValidDuration = Duration(minutes: 10);
 
   // Getters
   List<ProductModel> get products => _products;
@@ -33,6 +47,9 @@ class ProductProvider extends ChangeNotifier {
   bool get hasMoreProducts => _hasMoreProducts;
   bool get isLoadingMore => _isLoadingMore;
   String? get errorMessage => _errorMessage;
+  List<ProductModel> get searchResults => _searchResults;
+  List<ProductModel> get featuredProducts => _featuredProducts;
+  List<ProductModel> get newProducts => _newProducts;
 
   // Computed getters
   int get totalProducts => _products.length;
@@ -40,6 +57,14 @@ class ProductProvider extends ChangeNotifier {
   bool get hasCategories => _categories.isNotEmpty;
   bool get hasFiltersApplied => _currentFilter.hasFilters;
   String get filterSummary => _currentFilter.filterSummary;
+  bool get hasSearchQuery => _lastSearchQuery.isNotEmpty;
+  String get currentSearchQuery => _lastSearchQuery;
+
+  // Cache validation
+  bool get _isCacheValid {
+    if (_lastCacheUpdate == null) return false;
+    return DateTime.now().difference(_lastCacheUpdate!) < _cacheValidDuration;
+  }
 
   // Load products with filters
   Future<void> loadProducts({
@@ -49,6 +74,7 @@ class ProductProvider extends ChangeNotifier {
     if (refresh) {
       _products.clear();
       _hasMoreProducts = true;
+      _clearCache();
     }
 
     _setLoading(true);
@@ -57,6 +83,16 @@ class ProductProvider extends ChangeNotifier {
     try {
       if (filter != null) {
         _currentFilter = filter.copyWith(page: 1);
+      }
+
+      // Check cache first for category filters
+      if (_currentFilter.categoryId != null && !refresh && _isCacheValid) {
+        final cachedProducts = _categoryCache[_currentFilter.categoryId];
+        if (cachedProducts != null) {
+          _products = List.from(cachedProducts);
+          _setLoading(false);
+          return;
+        }
       }
 
       final newProducts = await _productService.getProducts(
@@ -80,6 +116,18 @@ class ProductProvider extends ChangeNotifier {
       }
 
       _hasMoreProducts = newProducts.length >= _currentFilter.limit;
+
+      // Update cache
+      if (_currentFilter.categoryId != null) {
+        _categoryCache[_currentFilter.categoryId!] = List.from(_products);
+      }
+      
+      // Cache individual products
+      for (final product in newProducts) {
+        _productCache[product.id] = product;
+      }
+      
+      _lastCacheUpdate = DateTime.now();
       
       debugPrint('Loaded ${newProducts.length} products. Total: ${_products.length}');
       notifyListeners();
@@ -119,6 +167,11 @@ class ProductProvider extends ChangeNotifier {
         _products.addAll(newProducts);
         _currentFilter = filter;
         _hasMoreProducts = newProducts.length >= _currentFilter.limit;
+        
+        // Update cache
+        for (final product in newProducts) {
+          _productCache[product.id] = product;
+        }
       } else {
         _hasMoreProducts = false;
       }
@@ -133,7 +186,9 @@ class ProductProvider extends ChangeNotifier {
   }
 
   // Load categories
-  Future<void> loadCategories() async {
+  Future<void> loadCategories({bool refresh = false}) async {
+    if (_categories.isNotEmpty && !refresh && _isCacheValid) return;
+
     _isLoadingCategories = true;
     notifyListeners();
 
@@ -155,7 +210,21 @@ class ProductProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Check cache first
+      if (_productCache.containsKey(productId) && _isCacheValid) {
+        _selectedProduct = _productCache[productId];
+        _isLoadingDetail = false;
+        notifyListeners();
+        return;
+      }
+
       _selectedProduct = await _productService.getProductDetail(productId);
+      
+      // Update cache
+      if (_selectedProduct != null) {
+        _productCache[productId] = _selectedProduct!;
+      }
+      
       debugPrint('Loaded product detail: ${_selectedProduct?.name}');
     } catch (error) {
       _handleError(error);
@@ -167,6 +236,13 @@ class ProductProvider extends ChangeNotifier {
 
   // Search products
   Future<void> searchProducts(String query) async {
+    if (query.trim().isEmpty) {
+      clearSearch();
+      return;
+    }
+
+    _lastSearchQuery = query.trim();
+    
     final filter = ProductFilterModel(
       search: query.trim(),
       orderBy: 'name',
@@ -174,6 +250,16 @@ class ProductProvider extends ChangeNotifier {
     );
     
     await loadProducts(filter: filter, refresh: true);
+    
+    // Store search results separately
+    _searchResults = List.from(_products);
+  }
+
+  // Clear search
+  void clearSearch() {
+    _lastSearchQuery = '';
+    _searchResults.clear();
+    notifyListeners();
   }
 
   // Filter by category
@@ -276,7 +362,16 @@ class ProductProvider extends ChangeNotifier {
   // Get featured products
   Future<List<ProductModel>> getFeaturedProducts({int limit = 10}) async {
     try {
-      return await _productService.getFeaturedProducts(limit: limit);
+      final products = await _productService.getFeaturedProducts(limit: limit);
+      _featuredProducts = products;
+      
+      // Update cache
+      for (final product in products) {
+        _productCache[product.id] = product;
+      }
+      
+      notifyListeners();
+      return products;
     } catch (error) {
       debugPrint('Error loading featured products: $error');
       return [];
@@ -296,15 +391,45 @@ class ProductProvider extends ChangeNotifier {
   // Get products by category
   Future<List<ProductModel>> getProductsByCategory(String categoryId) async {
     try {
-      return await _productService.getProductsByCategory(categoryId);
+      // Check cache first
+      if (_categoryCache.containsKey(categoryId) && _isCacheValid) {
+        return _categoryCache[categoryId]!;
+      }
+
+      final products = await _productService.getProductsByCategory(categoryId);
+      
+      // Update cache
+      _categoryCache[categoryId] = products;
+      for (final product in products) {
+        _productCache[product.id] = product;
+      }
+      
+      return products;
     } catch (error) {
       debugPrint('Error loading products by category: $error');
       return [];
     }
   }
 
+  // Load new products
+  Future<void> loadNewProducts({int limit = 10}) async {
+    try {
+      // For now, use featured products as new products
+      // TODO: Implement actual new products endpoint
+      _newProducts = await getFeaturedProducts(limit: limit);
+    } catch (error) {
+      debugPrint('Error loading new products: $error');
+    }
+  }
+
   // Utility methods
   ProductModel? getProductById(String productId) {
+    // Check cache first
+    if (_productCache.containsKey(productId)) {
+      return _productCache[productId];
+    }
+    
+    // Check current products list
     try {
       return _products.firstWhere((product) => product.id == productId);
     } catch (e) {
@@ -318,6 +443,11 @@ class ProductProvider extends ChangeNotifier {
     } catch (e) {
       return null;
     }
+  }
+
+  String? getCategoryNameById(String categoryId) {
+    final category = getCategoryById(categoryId);
+    return category?.name;
   }
 
   List<String> getAvailableSizes() {
@@ -346,6 +476,29 @@ class ProductProvider extends ChangeNotifier {
     return _products.map((p) => p.maxPrice).reduce((a, b) => a > b ? a : b);
   }
 
+  // Get products in price range
+  List<ProductModel> getProductsInPriceRange(double minPrice, double maxPrice) {
+    return _products.where((product) {
+      return product.minPrice >= minPrice && product.maxPrice <= maxPrice;
+    }).toList();
+  }
+
+  // Get products by subcategory
+  List<ProductModel> getProductsBySubcategory(String subcategory) {
+    return _products.where((product) => 
+        product.subcategory.toLowerCase() == subcategory.toLowerCase()).toList();
+  }
+
+  // Get discounted products
+  List<ProductModel> getDiscountedProducts() {
+    return _products.where((product) => product.hasDiscount).toList();
+  }
+
+  // Get in-stock products
+  List<ProductModel> getInStockProducts() {
+    return _products.where((product) => product.inStock).toList();
+  }
+
   // Clear selected product
   void clearSelectedProduct() {
     _selectedProduct = null;
@@ -354,10 +507,38 @@ class ProductProvider extends ChangeNotifier {
 
   // Refresh all data
   Future<void> refreshAll() async {
+    _clearCache();
     await Future.wait([
-      loadCategories(),
+      loadCategories(refresh: true),
       loadProducts(refresh: true),
+      getFeaturedProducts(),
+      loadNewProducts(),
     ]);
+  }
+
+  // Initialize provider
+  Future<void> initialize() async {
+    await refreshAll();
+  }
+
+  // Reset provider
+  void reset() {
+    _products.clear();
+    _categories.clear();
+    _selectedProduct = null;
+    _currentFilter = ProductFilterModel();
+    _searchResults.clear();
+    _featuredProducts.clear();
+    _newProducts.clear();
+    _lastSearchQuery = '';
+    _clearCache();
+    _clearError();
+    _isLoading = false;
+    _isLoadingCategories = false;
+    _isLoadingDetail = false;
+    _hasMoreProducts = true;
+    _isLoadingMore = false;
+    notifyListeners();
   }
 
   // Private methods
@@ -376,8 +557,29 @@ class ProductProvider extends ChangeNotifier {
     _errorMessage = null;
   }
 
-  // Initialize provider
-  Future<void> initialize() async {
-    await refreshAll();
+  void _clearCache() {
+    _categoryCache.clear();
+    _productCache.clear();
+    _lastCacheUpdate = null;
+  }
+
+  // Performance monitoring
+  void logPerformanceMetrics() {
+    debugPrint('=== Product Provider Performance ===');
+    debugPrint('Products loaded: ${_products.length}');
+    debugPrint('Categories loaded: ${_categories.length}');
+    debugPrint('Products in cache: ${_productCache.length}');
+    debugPrint('Categories in cache: ${_categoryCache.length}');
+    debugPrint('Cache valid: $_isCacheValid');
+    debugPrint('Has filters applied: $hasFiltersApplied');
+    debugPrint('Current search query: "$_lastSearchQuery"');
+    debugPrint('===================================');
+  }
+
+  // Dispose resources
+  @override
+  void dispose() {
+    _clearCache();
+    super.dispose();
   }
 }
