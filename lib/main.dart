@@ -1,6 +1,7 @@
 // lib/main.dart - Actualizado con navegación completa
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fluttersw1/presentation/providers/product_provider.dart';
 import 'package:provider/provider.dart';
 
 import 'core/constants/app_colors.dart';
@@ -50,6 +51,10 @@ class TiendaVirtualApp extends StatelessWidget {
         // Cart Provider
         ChangeNotifierProvider(
           create: (context) => CartProvider(),
+        ),
+        
+        ChangeNotifierProvider(
+          create: (context) => ProductProvider(),
         ),
         
         // Aquí irán más providers cuando los necesites:
