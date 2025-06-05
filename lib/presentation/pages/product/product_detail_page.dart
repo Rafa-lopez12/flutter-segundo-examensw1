@@ -920,6 +920,7 @@ class _ProductDetailPageState extends State<ProductDetailPage>
       image: product.mainImage,
       size: _selectedSize!,
       color: _selectedColor!,
+      productoVariedadId: variant.id,
     );
     
     ScaffoldMessenger.of(context).showSnackBar(

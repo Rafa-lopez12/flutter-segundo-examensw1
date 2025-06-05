@@ -1,7 +1,9 @@
 // lib/presentation/providers/cart_provider.dart
 import 'package:flutter/foundation.dart';
+import 'package:fluttersw1/core/services/cart_service.dart';
 
-// Modelo temporal de CartItem
+
+// Modelo adaptado para trabajar con el backend
 class CartItem {
   final String id;
   final String productId;
@@ -11,6 +13,7 @@ class CartItem {
   final String size;
   final String color;
   int quantity;
+  final String productoVariedadId; // ID que usa el backend
 
   CartItem({
     required this.id,
@@ -21,6 +24,7 @@ class CartItem {
     required this.size,
     required this.color,
     required this.quantity,
+    required this.productoVariedadId,
   });
 
   double get totalPrice => price * quantity;
@@ -35,55 +39,150 @@ class CartItem {
       'size': size,
       'color': color,
       'quantity': quantity,
+      'productoVariedadId': productoVariedadId,
     };
   }
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
     return CartItem(
-      id: json['id'],
-      productId: json['productId'],
-      name: json['name'],
-      price: json['price'].toDouble(),
-      image: json['image'],
-      size: json['size'],
-      color: json['color'],
-      quantity: json['quantity'],
+      id: json['id'] ?? json['productoVariedadId'],
+      productId: json['productId'] ?? json['producto']?['id'] ?? '',
+      name: json['name'] ?? json['producto']?['nombre'] ?? '',
+      price: (json['price'] ?? json['variedad']?['precio'] ?? 0).toDouble(),
+      image: json['image'] ?? '', // Se puede obtener de producto.images[0]
+      size: json['size'] ?? json['variedad']?['talla'] ?? '',
+      color: json['color'] ?? json['variedad']?['color'] ?? '',
+      quantity: json['quantity'] ?? json['cantidad'] ?? 0,
+      productoVariedadId: json['productoVariedadId'] ?? json['id'] ?? '',
+    );
+  }
+
+  // Factory para crear desde respuesta del backend
+  factory CartItem.fromBackendResponse(Map<String, dynamic> json) {
+    return CartItem(
+      id: json['productoVariedadId'] ?? '',
+      productId: json['producto']?['id'] ?? '',
+      name: json['producto']?['nombre'] ?? '',
+      price: (json['variedad']?['precio'] ?? 0).toDouble(),
+      image: '', // TODO: Obtener de producto.images si está disponible
+      size: json['variedad']?['talla'] ?? '',
+      color: json['variedad']?['color'] ?? '',
+      quantity: json['cantidad'] ?? 0,
+      productoVariedadId: json['productoVariedadId'] ?? '',
     );
   }
 }
 
 class CartProvider extends ChangeNotifier {
+  final CarritoService _carritoService = CarritoService();
+  
   final Map<String, CartItem> _items = {};
   bool _isLoading = false;
   String? _errorMessage;
+  
+  // Datos adicionales del backend
+  Map<String, dynamic>? _backendCart;
+  double _backendTotal = 0.0;
+  int _backendItemCount = 0;
 
-  // Getters
+  // Getters existentes (mantienen compatibilidad)
   Map<String, CartItem> get items => {..._items};
   List<CartItem> get itemsList => _items.values.toList();
-  int get itemCount => _items.values.fold(0, (sum, item) => sum + item.quantity);
+  int get itemCount => _backendItemCount > 0 ? _backendItemCount : _items.values.fold(0, (sum, item) => sum + item.quantity);
   int get uniqueItemCount => _items.length;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isEmpty => _items.isEmpty;
 
   double get totalAmount {
-    return _items.values.fold(0.0, (sum, item) => sum + item.totalPrice);
+    return _backendTotal > 0 ? _backendTotal : _items.values.fold(0.0, (sum, item) => sum + item.totalPrice);
   }
 
   double get subtotal => totalAmount;
 
   double get shipping {
-    return totalAmount > 100 ? 0.0 : 10.0; // Envío gratis sobre $100
+    return totalAmount > 100 ? 0.0 : 10.0;
   }
 
   double get tax {
-    return totalAmount * 0.15; // 15% de impuestos
+    return totalAmount * 0.15;
   }
 
   double get finalTotal => subtotal + shipping + tax;
 
-  // Add item to cart
+  // NUEVOS MÉTODOS CONECTADOS AL BACKEND
+
+  // Cargar carrito desde el backend
+  Future<void> loadCart() async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final response = await _carritoService.obtenerCarrito();
+      _backendCart = response;
+      
+      // Actualizar datos del resumen
+      final resumen = response['resumen'] ?? {};
+      _backendTotal = (resumen['total'] as num?)?.toDouble() ?? 0.0;
+      _backendItemCount = (resumen['totalItems'] as num?)?.toInt() ?? 0;
+      
+      // Convertir items del backend a nuestro modelo local
+      _items.clear();
+      final backendItems = response['items'] as List<dynamic>? ?? [];
+      
+      for (final item in backendItems) {
+        final cartItem = CartItem.fromBackendResponse(item);
+        final itemKey = '${cartItem.productId}_${cartItem.size}_${cartItem.color}';
+        _items[itemKey] = cartItem;
+      }
+      
+      notifyListeners();
+    } on CartException catch (e) {
+      _handleError(e.message);
+    } catch (e) {
+      _handleError('Error cargando carrito: $e');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Agregar item conectado al backend
   Future<void> addItem({
+    required String productId,
+    required String name,
+    required double price,
+    required String image,
+    required String size,
+    required String color,
+    required String productoVariedadId, // NUEVO: ID del backend
+    int quantity = 1,
+  }) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      // Llamar al backend
+      await _carritoService.agregarAlCarrito(
+        productoVariedadId: productoVariedadId,
+        cantidad: quantity,
+      );
+
+      // Recargar carrito para obtener estado actualizado
+      await loadCart();
+      
+    } on CartException catch (e) {
+      _handleError(e.message);
+      throw Exception(e.message);
+    } catch (e) {
+      _handleError('Error agregando al carrito: $e');
+      throw e;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Método simplificado para mantener compatibilidad (sin productoVariedadId)
+  Future<void> addItemLegacy({
     required String productId,
     required String name,
     required double price,
@@ -92,61 +191,23 @@ class CartProvider extends ChangeNotifier {
     required String color,
     int quantity = 1,
   }) async {
-    _setLoading(true);
-    _clearError();
-
-    try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      final itemKey = '${productId}_${size}_${color}';
-      
-      if (_items.containsKey(itemKey)) {
-        // Si el item ya existe, incrementar cantidad
-        _items[itemKey]!.quantity += quantity;
-      } else {
-        // Crear nuevo item
-        _items[itemKey] = CartItem(
-          id: itemKey,
-          productId: productId,
-          name: name,
-          price: price,
-          image: image,
-          size: size,
-          color: color,
-          quantity: quantity,
-        );
-      }
-
-      notifyListeners();
-    } catch (e) {
-      _handleError(e);
-      throw e;
-    } finally {
-      _setLoading(false);
-    }
+    // Este método mantiene la compatibilidad con tu código existente
+    // pero necesitarás el productoVariedadId para conectar con el backend
+    final productoVariedadId = '${productId}_${size}_${color}'; // Temporal
+    
+    await addItem(
+      productId: productId,
+      name: name,
+      price: price,
+      image: image,
+      size: size,
+      color: color,
+      productoVariedadId: productoVariedadId,
+      quantity: quantity,
+    );
   }
 
-  // Remove item from cart
-  Future<void> removeItem(String itemId) async {
-    _setLoading(true);
-    _clearError();
-
-    try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      _items.remove(itemId);
-      notifyListeners();
-    } catch (e) {
-      _handleError(e);
-      throw e;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Update item quantity
+  // Actualizar cantidad conectado al backend
   Future<void> updateQuantity(String itemId, int newQuantity) async {
     if (newQuantity <= 0) {
       await removeItem(itemId);
@@ -157,87 +218,148 @@ class CartProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      if (_items.containsKey(itemId)) {
-        _items[itemId]!.quantity = newQuantity;
-        notifyListeners();
+      final item = _items[itemId];
+      if (item == null) {
+        throw Exception('Item no encontrado en el carrito');
       }
+
+      // Llamar al backend
+      await _carritoService.actualizarCantidad(
+        productoVariedadId: item.productoVariedadId,
+        cantidad: newQuantity,
+      );
+
+      // Recargar carrito
+      await loadCart();
+      
+    } on CartException catch (e) {
+      _handleError(e.message);
+      throw Exception(e.message);
     } catch (e) {
-      _handleError(e);
+      _handleError('Error actualizando cantidad: $e');
       throw e;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Clear cart
+  // Remover item conectado al backend
+  Future<void> removeItem(String itemId) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final item = _items[itemId];
+      if (item == null) {
+        throw Exception('Item no encontrado en el carrito');
+      }
+
+      // Llamar al backend
+      await _carritoService.removerProducto(
+        productoVariedadId: item.productoVariedadId,
+      );
+
+      // Recargar carrito
+      await loadCart();
+      
+    } on CartException catch (e) {
+      _handleError(e.message);
+      throw Exception(e.message);
+    } catch (e) {
+      _handleError('Error removiendo item: $e');
+      throw e;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Vaciar carrito conectado al backend
   Future<void> clearCart() async {
     _setLoading(true);
     _clearError();
 
     try {
-      // Simular llamada a API
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Llamar al backend
+      await _carritoService.vaciarCarrito();
 
+      // Limpiar estado local
       _items.clear();
+      _backendCart = null;
+      _backendTotal = 0.0;
+      _backendItemCount = 0;
+      
       notifyListeners();
+      
+    } on CartException catch (e) {
+      _handleError(e.message);
+      throw Exception(e.message);
     } catch (e) {
-      _handleError(e);
+      _handleError('Error vaciando carrito: $e');
       throw e;
     } finally {
       _setLoading(false);
     }
   }
 
-  // Get specific item
+
+  // Obtener item específico
   CartItem? getItem(String itemId) {
     return _items[itemId];
   }
 
-  // Check if product exists in cart
+  // Verificar si producto existe en carrito
   bool containsProduct(String productId, String size, String color) {
     final itemKey = '${productId}_${size}_${color}';
     return _items.containsKey(itemKey);
   }
 
-  // Get quantity of specific product variant
+  // Verificar por productoVariedadId (NUEVO)
+  bool containsProductVariant(String productoVariedadId) {
+    return _items.values.any((item) => item.productoVariedadId == productoVariedadId);
+  }
+
+  // Obtener cantidad de producto específico
   int getProductQuantity(String productId, String size, String color) {
     final itemKey = '${productId}_${size}_${color}';
     return _items[itemKey]?.quantity ?? 0;
   }
 
-  // Load cart from server (temporal)
-  Future<void> loadCart() async {
-    _setLoading(true);
-    _clearError();
+  // Obtener cantidad por productoVariedadId (NUEVO)
+  int getProductVariantQuantity(String productoVariedadId) {
+    final item = _items.values.firstWhere(
+      (item) => item.productoVariedadId == productoVariedadId,
+      orElse: () => CartItem(
+        id: '',
+        productId: '',
+        name: '',
+        price: 0,
+        image: '',
+        size: '',
+        color: '',
+        quantity: 0,
+        productoVariedadId: '',
+      ),
+    );
+    return item.quantity;
+  }
 
+  // Cargar solo contador de items (para badges)
+  Future<void> loadItemCount() async {
     try {
-      // Simular carga desde API
-      await Future.delayed(const Duration(seconds: 1));
-      
-      // Por ahora no cargar nada, el carrito empieza vacío
+      _backendItemCount = await _carritoService.contarItems();
       notifyListeners();
     } catch (e) {
-      _handleError(e);
-    } finally {
-      _setLoading(false);
+      debugPrint('Error loading item count: $e');
     }
   }
 
-  // Sync cart to server (temporal)
+  // Sincronizar carrito (refrescar desde backend)
   Future<void> syncCart() async {
-    try {
-      // Simular sincronización
-      await Future.delayed(const Duration(milliseconds: 500));
-      // TODO: Implementar sincronización con backend
-    } catch (e) {
-      debugPrint('Failed to sync cart: $e');
-    }
+    await loadCart();
   }
 
-  // Helper methods
+  // MÉTODOS HELPER EXISTENTES
+
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
@@ -252,7 +374,6 @@ class CartProvider extends ChangeNotifier {
     _errorMessage = null;
   }
 
-  // Cart utilities
   bool canCheckout() {
     return _items.isNotEmpty && !_isLoading;
   }
@@ -266,32 +387,31 @@ class CartProvider extends ChangeNotifier {
     return '$totalItems ${totalItems == 1 ? 'artículo' : 'artículos'} • \${total.toStringAsFixed(2)}';
   }
 
-  // Mock data for testing
-  void addMockItems() {
+  // Limpiar estado al cerrar sesión
+  void clearState() {
     _items.clear();
-    
-    _items['1_M_Azul'] = CartItem(
-      id: '1_M_Azul',
-      productId: '1',
-      name: 'Camisa Elegante',
-      price: 89.99,
-      image: 'https://images.unsplash.com/photo-1571945153237-4929e783af4a?w=400',
-      size: 'M',
-      color: 'Azul',
-      quantity: 1,
-    );
-    
-    _items['2_S_Rosa'] = CartItem(
-      id: '2_S_Rosa',
-      productId: '2',
-      name: 'Vestido Casual',
-      price: 65.00,
-      image: 'https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=400',
-      size: 'S',
-      color: 'Rosa',
-      quantity: 2,
-    );
-    
+    _backendCart = null;
+    _backendTotal = 0.0;
+    _backendItemCount = 0;
+    _errorMessage = null;
+    _isLoading = false;
     notifyListeners();
+  }
+
+  // MÉTODOS PARA TESTING/DESARROLLO
+
+  void addMockItems() {
+    // Mantener para desarrollo, pero ahora carga desde backend
+    loadCart();
+  }
+
+  // Método para debugging
+  void printCartState() {
+    debugPrint('=== CART STATE ===');
+    debugPrint('Local items: ${_items.length}');
+    debugPrint('Backend total: $_backendTotal');
+    debugPrint('Backend item count: $_backendItemCount');
+    debugPrint('Items: ${_items.keys.toList()}');
+    debugPrint('==================');
   }
 }

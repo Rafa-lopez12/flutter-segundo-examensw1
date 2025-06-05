@@ -497,6 +497,7 @@ class _SimilarProductsWidgetState extends State<SimilarProductsWidget> {
       image: product.mainImage,
       size: defaultVariant.size?.name ?? 'M',
       color: defaultVariant.color ?? 'Default',
+      productoVariedadId: defaultVariant.id,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(

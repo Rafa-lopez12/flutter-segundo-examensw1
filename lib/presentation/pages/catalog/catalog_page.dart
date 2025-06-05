@@ -620,6 +620,7 @@ class _CatalogPageState extends State<CatalogPage>
       image: product.mainImage,
       size: defaultVariant.size.name,
       color: defaultVariant.color,
+      productoVariedadId: defaultVariant.id,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
