@@ -19,8 +19,10 @@ class ApiConstants {
   
   // Product Endpoints
   static const String productBase = '/producto';
-  static const String products = '$productBase/findAll';
-  static const String productDetail = '$productBase'; // + /{id}
+  static const String products = '$productBase/tienda/findAll';
+  static const String productDetail = '$productBase/tienda'; // + /{id}
+
+  
   
   // Category Endpoints
   static const String categoryBase = '/categoria';
