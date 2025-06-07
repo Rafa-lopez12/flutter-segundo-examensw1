@@ -253,7 +253,11 @@ class _CartPageState extends State<CartPage>
                     flex: 1,
                     child: CustomButton(
                       text: 'Seguir comprando',
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Usa la navegación inferior para explorar productos')),
+                        );
+                      },
                       type: ButtonType.outline,
                       icon: IconlyLight.arrow_left,
                       size: ButtonSize.medium,

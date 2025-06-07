@@ -1,6 +1,9 @@
 // lib/main.dart - Actualizado con navegación completa
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fluttersw1/presentation/pages/cart/cart_page.dart';
+import 'package:fluttersw1/presentation/pages/catalog/catalog_page.dart';
+import 'package:fluttersw1/presentation/providers/payment_provider.dart';
 import 'package:fluttersw1/presentation/providers/product_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -56,6 +59,10 @@ class TiendaVirtualApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (context) => ProductProvider(),
         ),
+
+        ChangeNotifierProvider(
+          create: (context) => PaymentProvider(),
+        ),
         
         // Aquí irán más providers cuando los necesites:
         // ChangeNotifierProvider(create: (context) => ProductProvider()),
@@ -84,6 +91,9 @@ class TiendaVirtualApp extends StatelessWidget {
               '/login': (context) => const LoginPage(),
               '/register': (context) => const RegisterPage(),
               '/main': (context) => const MainPage(),
+              '/catalog': (context) => const CatalogPage(),
+              '/cart': (context) => const CartPage(),
+
               // Rutas adicionales se agregarán aquí
             },
             

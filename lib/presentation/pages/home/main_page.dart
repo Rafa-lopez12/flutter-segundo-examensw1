@@ -1,6 +1,7 @@
 // lib/presentation/pages/home/main_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fluttersw1/presentation/pages/cart/cart_page.dart';
 import 'package:iconly/iconly.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -40,7 +41,7 @@ class _MainPageState extends State<MainPage> {
     const HomePage(),
     const CatalogPage(),
     // const AISearchPage(),
-    // const CartPage(),
+    const CartPage(),
     // const ProfilePage(),
   ];
 
